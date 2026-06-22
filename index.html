@@ -1,9 +1,10 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en-AU">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Type Quest</title>
+<link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -48,6 +49,7 @@
   .lead{text-align:center; margin:22px 0 6px;}
   .lead h2{font-family:'Fredoka',sans-serif; font-weight:600; font-size:clamp(26px,5vw,40px); margin:0 0 6px;}
   .lead p{margin:0; color:var(--ink-soft); font-size:17px; font-weight:600;}
+  .saved-note{text-align:center; margin:0 0 8px; color:var(--ink-soft); font-size:13px; font-weight:600; opacity:.85;}
   .levels{display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin:auto 0; padding:14px 0 28px;}
   .lvl-card{background:var(--panel); border:2px solid var(--line); border-radius:22px; padding:20px 16px 18px;
     text-align:center; cursor:pointer; transition:transform .12s ease, box-shadow .12s ease; position:relative;}
@@ -61,6 +63,7 @@
   .lvl-card.locked{cursor:not-allowed; opacity:.5;}
   .lvl-card.locked:hover{transform:none; box-shadow:none;}
   .lvl-card .lock{position:absolute; top:13px; right:15px; font-size:17px; opacity:.7;}
+  .load-msg{text-align:center; padding:48px 20px; color:var(--ink-soft); font-family:'Fredoka',sans-serif; font-size:18px;}
 
   .play{display:none; flex-direction:column; flex:1;}
   .play.on{display:flex;}
@@ -127,7 +130,7 @@
 </head>
 <body>
 <header>
-  <div class="brand"><span class="dots"><i></i><i></i><i></i><i></i></span><h1>Type Quest</h1></div>
+  <div class="brand"><span class="dots"><i></i><i></i><i></i><i></i></span><h1 id="appTitle">Type Quest</h1></div>
   <div class="hdr-right">
     <span class="level-tag" id="levelTag"></span>
     <button class="btn-ghost" id="backBtn">Levels</button>
@@ -137,7 +140,8 @@
 <main>
   <section id="selectScreen">
     <div class="lead"><h2>Pick a level</h2><p>Watch for the glowing key, then tap it or press it.</p></div>
-    <div class="levels" id="levelGrid"></div>
+    <p class="saved-note" id="savedNote" hidden>Progress is saved on this device.</p>
+    <div class="levels" id="levelGrid"><div class="load-msg">Loading levels…</div></div>
   </section>
 
   <section class="play" id="playScreen">
@@ -160,6 +164,7 @@
     <div class="big" id="ovEmoji">🎉</div>
     <h2 id="ovTitle">Level complete!</h2>
     <div class="stat" id="ovTime">Your time: 0:00</div>
+    <div class="stat" id="ovAccuracy"></div>
     <div id="ovBestWrap"></div>
     <div class="gap"></div>
     <button class="btn" id="ovNext">Next level</button>
@@ -168,6 +173,10 @@
 </div>
 
 <script>
+/* ---------- config ---------- */
+const DATA_URL='data/yr3-au.json';
+const STORAGE_KEY='typequest-yr3-au-v1';
+
 /* ---------- fingers ---------- */
 const FINGERS={
   LP:{v:'--LP',name:'left little finger'}, LR:{v:'--LR',name:'left ring finger'},
@@ -182,29 +191,52 @@ const KEYFINGER={
 };
 const cssColor=code=>getComputedStyle(document.documentElement).getPropertyValue(FINGERS[code].v).trim();
 const COL=['LP','LR','LM','LI','RI','RM','RR','RP'].map(cssColor);
+const levelColor=l=>getComputedStyle(document.documentElement).getPropertyValue('--'+l.color).trim();
 
-/* ---------- levels ---------- */
-const LEVELS=[
-  {name:'Home Row', c:'--LM', emoji:'🏠', sub:'Find the keys under your fingers',
-   items:['f','j','d','k','a','s','l','g','h','as','add','dad','sad','ask','all','lad','fall','glass','flask','salad','flash']},
-  {name:'Word Builder', c:'--LI', emoji:'🧩', sub:'Type whole words',
-   items:['cat','dog','sun','run','big','red','fun','jump','play','fish','tree','book','milk','frog','green','happy','water','smile','friend','because']},
-  {name:'Sentences', c:'--RI', emoji:'✏️', sub:'Words and spaces together',
-   items:['the cat is red','i can run fast','we like to play','my dog is big','the sun is hot','she has a book','look at the frog','we play in the park','i can jump up high','my friend is funny']},
-  {name:'Big Words', c:'--RM', emoji:'🚀', sub:'Longer, trickier words',
-   items:['rainbow','dinosaur','elephant','computer','birthday','favourite','adventure','playground','butterfly','important','beautiful','everybody','wonderful','vegetable']},
-  {name:'Capitals', c:'--RR', emoji:'🔠', sub:'Use Shift for capital letters',
-   items:['Sam','Max','Emma','Ben','Tom','Lily','Jack','Anna','Monday','Friday','March','April','Brisbane','Australia']},
-  {name:'Real Sentences', c:'--RP', emoji:'🏆', sub:'Capitals and full stops',
-   items:['The dog can run.','I like to play.','We go to school.','My name is Sam.','The sun is hot today.','She has a red bike.','We play in the park.','I can ride my bike.']}
-];
+/* ---------- levels (loaded from JSON) ---------- */
+let LEVELS=[];
 
 /* ---------- state ---------- */
 let unlocked=0, lvl=0, item=0, pos=0, busy=false, shiftArmed=false;
 let playOrder=[]; const bestTimes={};
+let hits=0, misses=0;
 const reduceMotion=matchMedia('(prefers-reduced-motion: reduce)').matches;
 const shuffle=a=>{for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;};
 const isLetterLower=c=>/^[a-z]$/.test(c);
+
+function loadProgress(){
+  try{
+    const raw=localStorage.getItem(STORAGE_KEY);
+    if(!raw) return;
+    const data=JSON.parse(raw);
+    if(typeof data.unlocked==='number') unlocked=data.unlocked;
+    if(data.bestTimes && typeof data.bestTimes==='object'){
+      Object.keys(data.bestTimes).forEach(k=>{ bestTimes[+k]=data.bestTimes[k]; });
+    }
+    document.getElementById('savedNote').hidden=false;
+  }catch(e){ /* ignore corrupt storage */ }
+}
+function saveProgress(){
+  try{
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ unlocked, bestTimes }));
+    document.getElementById('savedNote').hidden=false;
+  }catch(e){ /* private browsing / quota */ }
+}
+
+async function loadLevels(){
+  const grid=document.getElementById('levelGrid');
+  try{
+    const res=await fetch(DATA_URL);
+    if(!res.ok) throw new Error('Could not load levels');
+    const data=await res.json();
+    LEVELS=data.levels||[];
+    if(data.title) document.getElementById('appTitle').textContent=data.title.replace(' — Year 3','');
+    loadProgress();
+    renderLevels();
+  }catch(e){
+    grid.innerHTML='<div class="load-msg">Could not load levels. Check your connection and refresh.</div>';
+  }
+}
 
 /* ---------- keyboard ---------- */
 const ROWS=[
@@ -247,12 +279,17 @@ window.addEventListener('keydown',e=>{
 /* ---------- level select ---------- */
 const grid=document.getElementById('levelGrid');
 function fmt(ms){const s=Math.floor(ms/1000);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');}
+function fmtAccuracy(h,m){
+  const total=h+m;
+  if(!total) return '100%';
+  return Math.round(h/total*100)+'%';
+}
 function renderLevels(){
   grid.innerHTML='';
   LEVELS.forEach((L,i)=>{
     const locked=i>unlocked;
     const card=document.createElement('div'); card.className='lvl-card'+(locked?' locked':'');
-    card.style.setProperty('--c',cssColor.length?getComputedStyle(document.documentElement).getPropertyValue(L.c).trim():'#888');
+    card.style.setProperty('--c',levelColor(L));
     card.innerHTML=`<div class="num">${i+1}</div><h3>${L.name}</h3><p>${L.sub}</p>`+
       (bestTimes[i]!==undefined?`<div class="best">⭐ Best ${fmt(bestTimes[i])}</div>`:'')+
       (locked?'<span class="lock">🔒</span>':'');
@@ -279,7 +316,7 @@ function startTimer(){startT=Date.now(); timerEl.textContent='0:00'; clearInterv
 function stopTimer(){clearInterval(timerId); timerId=null; return Date.now()-startT;}
 
 function startLevel(i){
-  lvl=i; item=0; pos=0; shiftArmed=false; shiftEl.classList.remove('armed');
+  lvl=i; item=0; pos=0; hits=0; misses=0; shiftArmed=false; shiftEl.classList.remove('armed');
   playOrder=shuffle(LEVELS[i].items.slice());
   selectScreen.style.display='none'; playScreen.classList.add('on');
   levelTag.textContent=LEVELS[i].name; levelTag.style.display='inline-block'; backBtn.style.display='inline-block';
@@ -316,6 +353,7 @@ function pressChar(produced){
   if(busy || !playScreen.classList.contains('on')) return;
   const text=playOrder[item]; const target=text[pos]; if(target===undefined) return;
   if(produced===target){
+    hits++;
     const lk=target===' '?' ':target.toLowerCase(); const el=keyEls[lk];
     if(el){el.classList.add('hit'); setTimeout(()=>el.classList.remove('hit'),160);}
     pos++;
@@ -324,6 +362,7 @@ function pressChar(produced){
       setTimeout(()=>{ busy=false; item++; if(item>=playOrder.length) finishLevel(); else loadItem(); },360);
     } else refresh();
   } else {
+    misses++;
     const lk=produced===' '?' ':(produced||'').toLowerCase(); const el=keyEls[lk];
     if(el){el.classList.add('miss'); setTimeout(()=>el.classList.remove('miss'),320);}
     refresh();
@@ -335,6 +374,7 @@ const overlay=document.getElementById('overlay');
 const ovEmoji=document.getElementById('ovEmoji');
 const ovTitle=document.getElementById('ovTitle');
 const ovTime=document.getElementById('ovTime');
+const ovAccuracy=document.getElementById('ovAccuracy');
 const ovBestWrap=document.getElementById('ovBestWrap');
 const ovNext=document.getElementById('ovNext');
 const ovHome=document.getElementById('ovHome');
@@ -343,10 +383,12 @@ function finishLevel(){
   let isBest=false;
   if(bestTimes[lvl]===undefined || elapsed<bestTimes[lvl]){ bestTimes[lvl]=elapsed; isBest=true; }
   if(lvl+1>unlocked && lvl+1<LEVELS.length) unlocked=lvl+1;
+  saveProgress();
   celebrate();
   ovEmoji.textContent=LEVELS[lvl].emoji;
   ovTitle.textContent=`${LEVELS[lvl].name} done!`;
   ovTime.textContent=`Your time: ${fmt(elapsed)}`;
+  ovAccuracy.textContent=`Accuracy: ${fmtAccuracy(hits,misses)}`;
   ovBestWrap.innerHTML=isBest?'<div class="newbest">⭐ New best time!</div>':`<div class="stat">Best: ${fmt(bestTimes[lvl])}</div>`;
   const last=lvl>=LEVELS.length-1;
   if(last){ ovNext.textContent='Play again'; ovNext.onclick=()=>{overlay.classList.remove('on'); startLevel(lvl);}; }
@@ -398,7 +440,7 @@ function runFx(type){
   raf=requestAnimationFrame(frame);
 }
 
-renderLevels();
+loadLevels();
 </script>
 </body>
 </html>

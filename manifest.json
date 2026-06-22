@@ -1,0 +1,17 @@
+{
+  "name": "Type Quest — Year 3",
+  "short_name": "Type Quest",
+  "description": "Typing practice for Year 3 students — laptops and iPads.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#eef3f8",
+  "theme_color": "#eef3f8",
+  "icons": [
+    {
+      "src": "apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
