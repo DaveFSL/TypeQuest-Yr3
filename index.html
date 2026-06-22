@@ -84,6 +84,7 @@
   .bar > i{display:block; height:100%; width:0%; border-radius:999px; background:linear-gradient(90deg,var(--LI),var(--RI)); transition:width .3s ease;}
   .chip{font-family:'Fredoka',sans-serif; font-weight:500; color:var(--ink-soft); font-size:15px; white-space:nowrap;}
   .chip.time{background:#f1f6fb; border-radius:999px; padding:4px 12px;}
+  .chip.accuracy{background:#eef8f2; color:var(--ok); border-radius:999px; padding:4px 12px;}
 
   .stage{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; padding:16px 0 4px; min-height:140px;}
   .word{display:flex; flex-wrap:wrap; justify-content:center; gap:6px; font-family:'Fredoka',sans-serif; font-weight:500;}
@@ -124,6 +125,7 @@
   .card .big{font-size:52px; line-height:1; margin-bottom:6px;}
   .card h2{font-family:'Fredoka',sans-serif; font-weight:600; font-size:27px; margin:0 0 4px;}
   .card .stat{font-family:'Fredoka',sans-serif; font-weight:500; font-size:17px; color:var(--ink-soft); margin:2px 0;}
+  .card .stat.accuracy-big{font-size:24px; font-weight:700; color:var(--ok); margin:10px 0 4px;}
   .card .newbest{display:inline-block; margin:8px 0 4px; font-family:'Fredoka',sans-serif; font-weight:600; color:#fff;
     background:var(--LM); padding:5px 14px; border-radius:999px; font-size:15px;}
   .card .gap{height:16px;}
@@ -177,6 +179,7 @@
     <div class="progress-wrap">
       <div class="bar"><i id="barFill"></i></div>
       <span class="chip time" id="timer">0:00</span>
+      <span class="chip accuracy" id="accuracyChip">100%</span>
       <span class="chip" id="count">1 / 1</span>
     </div>
     <div class="stage">
@@ -193,7 +196,7 @@
     <div class="big" id="ovEmoji">🎉</div>
     <h2 id="ovTitle">Level complete!</h2>
     <div class="stat" id="ovTime">Your time: 0:00</div>
-    <div class="stat" id="ovAccuracy"></div>
+    <div class="stat accuracy-big" id="ovAccuracy"></div>
     <div id="ovBestWrap"></div>
     <div class="gap"></div>
     <button class="btn" id="ovNext">Next level</button>
@@ -277,6 +280,10 @@ function fmtAccuracy(h,m){
   const total=h+m;
   if(!total) return '100%';
   return Math.round(h/total*100)+'%';
+}
+function updateAccuracyDisplay(){
+  const el=document.getElementById('accuracyChip');
+  if(el) el.textContent=fmtAccuracy(hits,misses);
 }
 function buildProgressReport(){
   const name=document.getElementById('studentName').value.trim();
@@ -397,7 +404,7 @@ function renderLevels(){
     const card=document.createElement('div'); card.className='lvl-card'+(locked?' locked':'');
     card.style.setProperty('--c',levelColor(L));
     card.innerHTML=`<div class="num">${i+1}</div><h3>${L.name}</h3><p>${L.sub}</p>`+
-      (bestTimes[i]!==undefined?`<div class="best">⭐ Best ${fmt(bestTimes[i])}</div>`:'')+
+      (bestTimes[i]!==undefined?`<div class="best">⭐ Best ${fmt(bestTimes[i])}${levelStats[i]?.accuracy?' · 🎯 '+levelStats[i].accuracy:''}</div>`:'')+
       (locked?'<span class="lock">🔒</span>':'');
     if(!locked) card.addEventListener('click',()=>startLevel(i));
     grid.appendChild(card);
@@ -422,7 +429,7 @@ function startTimer(){startT=Date.now(); timerEl.textContent='0:00'; clearInterv
 function stopTimer(){clearInterval(timerId); timerId=null; return Date.now()-startT;}
 
 function startLevel(i){
-  lvl=i; item=0; pos=0; hits=0; misses=0; shiftArmed=false; shiftEl.classList.remove('armed');
+  lvl=i; item=0; pos=0; hits=0; misses=0; updateAccuracyDisplay(); shiftArmed=false; shiftEl.classList.remove('armed');
   playOrder=shuffle(LEVELS[i].items.slice());
   selectScreen.style.display='none'; playScreen.classList.add('on');
   levelTag.textContent=LEVELS[i].name; levelTag.style.display='inline-block'; backBtn.style.display='inline-block';
@@ -481,6 +488,7 @@ function pressChar(produced){
     if(el){el.classList.add('miss'); setTimeout(()=>el.classList.remove('miss'),320);}
     refresh();
   }
+  updateAccuracyDisplay();
 }
 
 /* ---------- finish ---------- */
@@ -504,7 +512,7 @@ function finishLevel(){
   ovEmoji.textContent=LEVELS[lvl].emoji;
   ovTitle.textContent=`${LEVELS[lvl].name} done!`;
   ovTime.textContent=`Your time: ${fmt(elapsed)}`;
-  ovAccuracy.textContent=`Accuracy: ${accuracy}`;
+  ovAccuracy.textContent=`🎯 Accuracy: ${accuracy}`;
   ovBestWrap.innerHTML=isBest?'<div class="newbest">⭐ New best time!</div>':`<div class="stat">Best: ${fmt(bestTimes[lvl])}</div>`;
   const last=lvl>=LEVELS.length-1;
   if(last){ ovNext.textContent='Play again'; ovNext.onclick=()=>{overlay.classList.remove('on'); startLevel(lvl);}; }
